@@ -126,17 +126,29 @@ npx playwright install        # download browser binaries (chromium, firefox, we
 ## Running the tests
 
 ```bash
-npm test                      # full suite, headless, all browsers
+npm test                      # full suite, headless, all browsers (chromium + firefox + webkit)
 npm run test:chromium         # chromium only
-npm run test:headed           # visible browser
-npm run test:ui               # Playwright UI mode (great for development)
+npm run test:firefox          # firefox only
+npm run test:webkit           # webkit (Safari engine) only
+npm run test:headed           # full suite with a visible browser
+npm run test:ui               # Playwright UI mode — great for development
 npm run test:debug            # step-through debugger
 npm run report                # open the last HTML report
+```
+
+Any extra Playwright flags can be passed through after `--`:
+
+```bash
+npm run test:chromium -- --workers=1                  # serial — recommended for the shared demo
+npm run test:firefox  -- tests/pim/add-employee.spec.ts
+npm test              -- --grep "login"               # only tests matching /login/
 ```
 
 The `setup` project authenticates once at the start and saves the session to `playwright/.auth/admin.json`; module tests start from that state and skip re-login. The login tests opt out via `test.use({ storageState: { cookies: [], origins: [] } })`.
 
 > **Note** — When iterating against the shared demo, prefer `--workers=1`. The OrangeHRM public demo is throttled and concurrent writes (employee creation in particular) collide. CI is already configured to use 1 worker.
+
+> **Note** — `firefox` and `webkit` browser binaries are downloaded as part of `npx playwright install` (see [Setup](#setup)). If you only ran `npx playwright install chromium`, the firefox/webkit scripts will fail with `Executable doesn't exist` until you install those engines.
 
 ## Lint, format, type-check
 
