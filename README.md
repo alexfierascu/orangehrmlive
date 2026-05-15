@@ -168,6 +168,29 @@ The pre-commit hook runs `lint-staged` (eslint --fix + prettier --write on chang
 
 - **`lint` job** — ESLint, typecheck, Prettier check.
 - **`test` job** — runs the chromium project on PRs; the full chromium / firefox / webkit matrix on the nightly schedule. The HTML report is uploaded as an artifact (kept 14 days), and on failure the trace, screenshots, and videos are uploaded too.
+- **`deploy-report` job** — on push to `main`, publishes the latest chromium HTML report to GitHub Pages. Runs even when tests fail (a failing report is the most useful one).
+
+### Live test report (GitHub Pages)
+
+Once enabled, the latest report from `main` is browsable at:
+
+```
+https://<your-github-username>.github.io/<repo-name>/
+```
+
+**One-time setup** in the repo (each repo needs this; GitHub doesn't enable Pages automatically):
+
+1. **Settings → Pages**.
+2. Under **Build and deployment → Source**, choose **"GitHub Actions"**.
+3. Push something to `main`. The `deploy-report` job will publish; the URL is printed in the job's "environment" panel and at _Settings → Pages_.
+
+**How it works under the hood**
+
+- The chromium matrix shard of the `test` job uploads `playwright-report/` as a Pages-compatible artifact via `actions/upload-pages-artifact@v3` (only on pushes to `main`).
+- A separate `deploy-report` job (`needs: test`) calls `actions/deploy-pages@v4`, which serves that artifact at the URL above.
+- A `concurrency: pages` group prevents two deploys from racing if you push twice in quick succession.
+
+**Permissions** — the `deploy-report` job declares `pages: write` and `id-token: write`. These are scoped to that one job; the rest of the workflow keeps the default least-privilege `contents: read`.
 
 ## Configuration
 
@@ -213,6 +236,8 @@ The workflow reads `ADMIN_USER` and `ADMIN_PASSWORD` from repository secrets:
 - _Add Candidate_ — creates a candidate with required fields and lands on the candidate profile (post-save URL match); required-field validation for empty first/last name + email.
 - _Candidates List_ — loads with the seeded demo candidates rendered.
 
+> **Heads-up on intermittent CI failures.** One test — `PIM — Add Employee › creates an employee with first + last name and lands on Personal Details` — can fail intermittently on the public demo because of a real defect in OrangeHRM's auto-generated Employee Id (race condition under concurrent writes). The test is **deliberately not patched** to mask this. See [Findings during automation](#findings-during-automation) for the full bug report.
+
 ## Notable design choices
 
 - **Label-proximity field helper.** OrangeHRM's inputs lack `for`/`id` associations and most don't carry `name` attributes either, so neither `getByLabel` nor `input[name="..."]` works in general. `BasePage.fieldByLabel(label)` returns the first `input`/`textarea` that follows the matching label in document order — robust across PIM, Personal Details, Contact Details, and Recruitment forms which all use slightly different DOM wrappers.
@@ -221,6 +246,57 @@ The workflow reads `ADMIN_USER` and `ADMIN_PASSWORD` from repository secrets:
 - **Faker for realism, timestamp for uniqueness.** Names, phones, and emails come from Faker (`faker.person.firstName()`, `faker.internet.email()`, etc.) so trace screenshots read naturally ("Sarah Murphy" vs `Auto256205 Userv4`). The Employee Id is _not_ Faker-driven — OrangeHRM rejects duplicates and caps the field at 10 chars, so `generateEmployee()` keeps a `${timestamp}${random}` 8-char id for guaranteed uniqueness across runs.
 - **Fresh context for the new-user-sign-in test.** The "Create Login Details" PIM test verifies the brand-new user can authenticate by spinning up an unauthenticated context (`browser.newContext({ storageState: { cookies: [], origins: [] } })`) and signing in there — proves the credentials really work, not just that the form thinks it saved.
 - **No teardown of created employees / candidates.** The shared demo accumulates test data over time. Cleaning up via the UI in `afterEach` would slow the suite materially and add a failure path; left as a trade-off, see "Future work" below.
+
+## Findings during automation
+
+Building this suite surfaced a real defect in the application. It's documented here as I'd document it in a real engagement — a tester's job isn't only to write green tests, it's to feed defects back to the product team. The test that exposes it is **deliberately left as-is**: masking an application bug behind a test workaround would defeat the purpose of automated regression testing.
+
+### OrangeHRM auto-generated Employee Id race condition
+
+| Field               | Value                                                                       |
+| ------------------- | --------------------------------------------------------------------------- |
+| **Severity**        | P3 / Medium — non-blocking, intermittent, has a manual workaround.          |
+| **Module**          | PIM > Add Employee                                                          |
+| **Affected build**  | OrangeHRM OS 5.8 (public demo, `https://opensource-demo.orangehrmlive.com`) |
+| **Reproducibility** | Intermittent — correlates with concurrent writes against the same database. |
+| **First observed**  | GitHub Actions chromium run, 2026-05-15.                                    |
+
+**Steps to reproduce**
+
+1. Log in as Admin.
+2. Navigate to **PIM → Add Employee**. The Employee Id field is auto-populated by the application (e.g. `0505`).
+3. Fill First Name and Last Name. **Do not** modify the auto-populated Employee Id.
+4. Click **Save**.
+
+**Expected**
+The employee is created. The browser is redirected to the new employee's Personal Details page (URL pattern `/pim/viewPersonalDetails/empNumber/<id>`).
+
+**Actual**
+The Save click submits but the redirect doesn't happen. The page stays on `/pim/addEmployee`. An inline validation error appears under the Employee Id field:
+
+> Employee Id already exists
+
+There is no toast, modal, or other top-level signal — only the inline message. The user has to recognise that the _system-supplied_ value is the problem, manually edit it, and Save again.
+
+**Likely root cause**
+The auto-populated Employee Id appears to be computed at page-load (probably `MAX(id) + 1` or a similar deterministic scheme). The value is **not transactionally reserved** — between page-load and the Save click, another concurrent request can claim the same id, leaving this submission to fail at the uniqueness constraint. Two contributing factors compound it on the public demo:
+
+- The shared demo handles writes from many concurrent users, so the window for collision is wider than on a private instance.
+- Deleted employees may free their ids back into the auto-generation space, increasing collision likelihood as the database churns.
+
+**Evidence in this suite**
+
+`tests/pim/add-employee.spec.ts > "creates an employee with first + last name and lands on Personal Details"` is the only PIM-Add scenario that intentionally does **not** override the auto-populated Employee Id (the test exercises the _minimum required fields_ flow, as a real user would). It fails intermittently in CI for exactly the reason above. Other PIM-Add tests pass reliably because they all call `setEmployeeId(employee.employeeId)` with a guaranteed-unique id from `generateEmployee()`.
+
+CI artifact for the failure: HTML report shows the inline `"Employee Id already exists"` error; trace shows the Save POST returning to the same URL instead of the expected 302.
+
+**Workarounds (and why we didn't apply them in tests)**
+
+- **In the test:** add `await addEmployeePage.setEmployeeId(employee.employeeId)` before Save. _Not applied_ — masking the application bug behind a test workaround would defeat the test's purpose. The test exists to catch exactly this kind of regression. If it stays red intermittently, that's a signal the bug is still live.
+- **In the application (proper fix):** either reserve the id transactionally on page-load, or re-generate-and-validate on Save with a server-side retry on uniqueness conflict.
+
+**Recommendation**
+File against the OrangeHRM open-source repository. Note that on a private OrangeHRM instance with no concurrent traffic this defect is much harder to reproduce — which is itself useful information when triaging.
 
 ## Future work / trade-offs
 
