@@ -1,0 +1,17 @@
+node_modules/
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+playwright/.auth/
+
+# IDE / per-developer tooling
+.idea/
+.vscode/
+.claude/
+
+# OS
+.DS_Store
+
+# Env
+.env
