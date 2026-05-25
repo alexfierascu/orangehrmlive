@@ -250,7 +250,7 @@ The workflow reads `ADMIN_USER` and `ADMIN_PASSWORD` from repository secrets:
 
 ## Findings during automation
 
-Building this suite surfaced two real defects in the application. They're documented here as I'd document them in a real engagement — a tester's job isn't only to write green tests, it's to feed defects back to the product team. The tests that expose them are **deliberately left as-is**: masking an application bug behind a test workaround would defeat the purpose of automated regression testing.
+Building this suite surfaced three real defects in the application. They're documented here as I'd document them in a real engagement — a tester's job isn't only to write green tests, it's to feed defects back to the product team. The tests that expose them are **deliberately left as-is** wherever the failure is genuinely the application's fault; the one defensive wait we added (form-loader overlay) is bounded and is documented as such.
 
 ### OrangeHRM auto-generated Employee Id race condition
 
@@ -345,6 +345,36 @@ The test's logic is correct: submit wrong creds → assert the error banner appe
 
 **Recommendation**
 File against the OrangeHRM demo's deployment configuration. On a private OrangeHRM instance without rate-limiting middleware, this issue is unlikely to reproduce — again, useful triage information.
+
+### OrangeHRM `.oxd-form-loader` overlay intercepts clicks during page hydration
+
+| Field               | Value                                                                                    |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| **Severity**        | P3 / Medium — race condition; affects automation more than humans (who naturally pause). |
+| **Module**          | PIM > Personal Details, PIM > Contact Details (any data-bound form).                     |
+| **Affected build**  | OrangeHRM OS 5.8                                                                         |
+| **Reproducibility** | Reliable under slow demo load; intermittent otherwise.                                   |
+| **First observed**  | GitHub Actions chromium run, 2026-05-25 (10.3 min slow run).                             |
+
+**Steps to reproduce**
+
+1. Navigate to a data-bound form (e.g. `/pim/viewPersonalDetails/empNumber/<id>` via the Employee List's pencil-icon).
+2. Immediately attempt to click an input on the form.
+
+**Expected**
+The click registers. The page header has rendered, the URL has updated, and form inputs are visible.
+
+**Actual**
+A short-lived `<div class="oxd-form-loader">` overlay sits on top of the form while data hydrates. Any click in that window is intercepted by the overlay rather than reaching the input. There is no visible _blocking_ spinner — the form appears interactable but isn't.
+
+**Likely root cause**
+The form-loader element is added to the DOM as a click-shield while Vue fetches and binds employee data into the form. The header and inputs are rendered eagerly (which is why `expectLoaded()` checks pass), but the overlay isn't removed until data binding completes.
+
+**Workaround applied in this suite**
+`EmployeePersonalDetailsPage.expectLoaded()` and `EmployeeContactDetailsPage.expectLoaded()` now wait for `.oxd-form-loader` to reach the `hidden` state (with a 10-second cap and a swallowed timeout). This is one of the few places where a defensive wait is justified: the loader is an OrangeHRM-side rendering quirk, not something user-facing tests should assert on, and the wait is bounded.
+
+**Recommendation**
+On the application side, either render the form skeleton-only until data has bound, or make the overlay non-interactive (`pointer-events: none`) and use the inputs' own `disabled` state instead.
 
 ## Future work / trade-offs
 
