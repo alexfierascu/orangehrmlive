@@ -246,10 +246,11 @@ The workflow reads `ADMIN_USER` and `ADMIN_PASSWORD` from repository secrets:
 - **Faker for realism, timestamp for uniqueness.** Names, phones, and emails come from Faker (`faker.person.firstName()`, `faker.internet.email()`, etc.) so trace screenshots read naturally ("Sarah Murphy" vs `Auto256205 Userv4`). The Employee Id is _not_ Faker-driven — OrangeHRM rejects duplicates and caps the field at 10 chars, so `generateEmployee()` keeps a `${timestamp}${random}` 8-char id for guaranteed uniqueness across runs.
 - **Fresh context for the new-user-sign-in test.** The "Create Login Details" PIM test verifies the brand-new user can authenticate by spinning up an unauthenticated context (`browser.newContext({ storageState: { cookies: [], origins: [] } })`) and signing in there — proves the credentials really work, not just that the form thinks it saved.
 - **No teardown of created employees / candidates.** The shared demo accumulates test data over time. Cleaning up via the UI in `afterEach` would slow the suite materially and add a failure path; left as a trade-off, see "Future work" below.
+- **Timeouts tuned for a healthy demo, not the slowest possible day.** The public demo's response times can swing 5–10× between calm and busy periods. The default Playwright timeouts (5s `expect`, 15s navigation, 30s per test) are tuned for normal demo speeds; on slow days, tests can time out even when the framework is correct. CI is configured with `retries: 2` to absorb that noise. Permanently inflating timeouts to "make CI green" would mask exactly the signal we want to keep — _"this code works against a healthy SUT but the SUT isn't always healthy."_ The principled fix is to self-host OrangeHRM (see Future Work) and remove the noise at source.
 
 ## Findings during automation
 
-Building this suite surfaced a real defect in the application. It's documented here as I'd document it in a real engagement — a tester's job isn't only to write green tests, it's to feed defects back to the product team. The test that exposes it is **deliberately left as-is**: masking an application bug behind a test workaround would defeat the purpose of automated regression testing.
+Building this suite surfaced two real defects in the application. They're documented here as I'd document them in a real engagement — a tester's job isn't only to write green tests, it's to feed defects back to the product team. The tests that expose them are **deliberately left as-is**: masking an application bug behind a test workaround would defeat the purpose of automated regression testing.
 
 ### OrangeHRM auto-generated Employee Id race condition
 
@@ -297,6 +298,53 @@ CI artifact for the failure: HTML report shows the inline `"Employee Id already 
 
 **Recommendation**
 File against the OrangeHRM open-source repository. Note that on a private OrangeHRM instance with no concurrent traffic this defect is much harder to reproduce — which is itself useful information when triaging.
+
+### OrangeHRM `/auth/validate` hang under repeated failed-login attempts
+
+| Field               | Value                                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Severity**        | P4 / Low — affects only automated invalid-credentials tests; humans rarely hit it.                        |
+| **Module**          | Authentication > Login                                                                                    |
+| **Affected build**  | OrangeHRM OS 5.8 (public demo, `https://opensource-demo.orangehrmlive.com`)                               |
+| **Reproducibility** | Intermittent on the public demo; correlates with frequency of failed-login attempts from the same client. |
+| **First observed**  | GitHub Actions chromium run, 2026-05-25.                                                                  |
+
+**Steps to reproduce**
+
+1. From a single client, submit a POST to `/web/index.php/auth/validate` with invalid credentials.
+2. Repeat several times in close succession (e.g. CI loops over login regression tests).
+3. After ~N attempts, observe that subsequent POSTs hang without returning a response.
+
+**Expected**
+Every invalid-credentials submission returns within a reasonable window with the standard `.oxd-alert-content--error` banner ("Invalid credentials") rendered on the page.
+
+**Actual**
+The browser stays on `/auth/login` _waiting for navigation to finish_ — the POST is in flight but no response arrives within the test's 5-second window. The error banner never renders because the page is mid-request. The valid-credentials login flow continues to work normally during the same window, so the issue is specific to failed attempts.
+
+**Likely root cause**
+Soft rate-limiting / throttling on the public demo to discourage brute-force credential probing. Reasonable behaviour for an internet-facing demo, but it has the side-effect of breaking automated invalid-credentials tests that intentionally submit wrong credentials at machine speed.
+
+**Evidence in this suite**
+
+`tests/auth/login.spec.ts > "shows an error for invalid credentials"` failed all three retries in CI with:
+
+```
+Locator: locator('.oxd-alert-content--error')
+Expected: visible
+Call log:
+  - waiting for locator('.oxd-alert-content--error')
+    - waiting for "/web/index.php/auth/validate" navigation to finish...
+```
+
+The test's logic is correct: submit wrong creds → assert the error banner appears. It fails because the _server's response_ doesn't arrive, not because our locator is wrong.
+
+**Workarounds (and why we didn't apply them in tests)**
+
+- **In the test:** add a longer timeout, or retry the whole login submission. _Not applied_ — would mask intermittent server unavailability behind apparent test success.
+- **In the deployment (proper fix):** if rate-limiting is intentional, document it explicitly and return a clear HTTP status (e.g. 429) instead of hanging. Test code can then assert on that response.
+
+**Recommendation**
+File against the OrangeHRM demo's deployment configuration. On a private OrangeHRM instance without rate-limiting middleware, this issue is unlikely to reproduce — again, useful triage information.
 
 ## Future work / trade-offs
 
