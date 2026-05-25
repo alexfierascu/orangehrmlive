@@ -28,6 +28,11 @@ export default defineConfig({
     {
       name: 'setup',
       testMatch: /global\.setup\.ts/,
+      // Pin setup to Chromium explicitly: cookies in `storageState` are not
+      // browser-specific, so we always use the cheapest/fastest engine for the
+      // login dance regardless of which engine the test projects target.
+      // CI must therefore install chromium alongside the matrix browser.
+      use: { ...devices['Desktop Chrome'] },
     },
     {
       name: 'chromium',

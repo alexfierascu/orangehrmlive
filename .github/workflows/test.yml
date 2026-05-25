@@ -43,7 +43,10 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps ${{ matrix.project }}
+        # chromium is always installed because the `setup` project uses it to
+        # capture the storageState (cookies are not browser-specific). The
+        # matrix browser is also installed so the actual tests can run on it.
+        run: npx playwright install --with-deps chromium ${{ matrix.project }}
       - name: Run Playwright tests
         run: npx playwright test --project=${{ matrix.project }}
         env:
