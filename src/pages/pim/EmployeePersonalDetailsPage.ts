@@ -33,6 +33,13 @@ export class EmployeePersonalDetailsPage extends BasePage {
       timeout: 15_000,
     });
     await expect(this.header).toBeVisible();
+    // Wait for the form-loader overlay to clear; while it's up, any click on
+    // an input is intercepted by the overlay div, leading to misleading
+    // "click timeout" failures on slow page loads.
+    await this.page
+      .locator('.oxd-form-loader')
+      .waitFor({ state: 'hidden', timeout: 10_000 })
+      .catch(() => undefined);
   }
 
   async empNumber(): Promise<string> {
