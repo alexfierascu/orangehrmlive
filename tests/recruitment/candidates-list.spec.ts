@@ -11,3 +11,6 @@ test.describe('Recruitment — Candidates List', () => {
     await expect(candidatesPage.resultRows.first()).toBeVisible();
   });
 });
+
+// create candidate + search for it
+// assert different information from the candidate (object) that i previously created

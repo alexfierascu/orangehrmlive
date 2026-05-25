@@ -37,6 +37,17 @@ test.describe('PIM — Add Employee', () => {
     await personalDetailsPage.expectLoaded();
     await expect(personalDetailsPage.middleNameInput).toHaveValue(employee.middleName);
     await expect(personalDetailsPage.employeeIdInput).toHaveValue(employee.employeeId);
+    //
+    //
+    // api - contract //openapi specification, .json, .yml
+    //
+    //   mock the api (model, object - payload, response, )
+    //   test -> mock -> green
+    //
+    //   feature ready: test -> feature environemt/ local dev/ env -> green
+    //
+    //
+    //   test pyramid -> unit tests, component test, integration, e2e
   });
 
   test('auto-populates the employee id when the form opens', async ({ addEmployeePage }) => {
@@ -112,3 +123,9 @@ test.describe('PIM — Add Employee', () => {
     }
   });
 });
+
+// 1. feature env -> feature db  - drop table
+// 2. delete the created user -> sql statement delete users employeeId between ()
+// 3. api - delete the users by api - employeeId
+
+//data cleanup -

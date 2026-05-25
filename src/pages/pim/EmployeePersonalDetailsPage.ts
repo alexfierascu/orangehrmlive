@@ -45,5 +45,7 @@ export class EmployeePersonalDetailsPage extends BasePage {
     await this.personalDetailsSaveButton.click();
     // OrangeHRM shows a success toast on save; wait for it then dismiss.
     await expect(this.page.locator('.oxd-toast')).toBeVisible();
+
+    //network - html request was succesfully (intercept request + 201)
   }
 }
