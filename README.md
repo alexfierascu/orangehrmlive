@@ -13,7 +13,7 @@ End-to-end test framework for the [OrangeHRM demo site](https://opensource-demo.
 - **Faker (`@faker-js/faker`)** — realistic names, phones, and emails for test data.
 - **dotenv** — `BASE_URL` / credentials are env-overridable, with a committed `.env.example`.
 - **ESLint + Prettier + Husky** — flat-config ESLint with the Playwright plugin, Prettier formatting, and a pre-commit hook (lint-staged + `tsc --noEmit`).
-- **GitHub Actions CI** — `.github/workflows/test.yml`: lint + typecheck + format on every PR; chromium tests on every PR; full browser matrix nightly.
+- **GitHub Actions CI** — `.github/workflows/test.yml`: lint + typecheck + format on every PR; chromium tests on every push and PR; HTML report deployed to GitHub Pages.
 
 ## Project layout
 
@@ -164,10 +164,10 @@ The pre-commit hook runs `lint-staged` (eslint --fix + prettier --write on chang
 
 ## CI
 
-`.github/workflows/test.yml` runs on every push, every PR to `main`, and nightly at 03:00 UTC.
+`.github/workflows/test.yml` runs on every push to `main`, every PR to `main`, and on manual dispatch.
 
 - **`lint` job** — ESLint, typecheck, Prettier check.
-- **`test` job** — runs the chromium project on PRs; the full chromium / firefox / webkit matrix on the nightly schedule. The HTML report is uploaded as an artifact (kept 14 days), and on failure the trace, screenshots, and videos are uploaded too.
+- **`test` job** — runs the chromium project. The HTML report is uploaded as an artifact (kept 14 days), and on failure the trace, screenshots, and videos are uploaded too. Firefox and webkit can be run locally via `npm run test:firefox` / `npm run test:webkit`.
 - **`deploy-report` job** — on push to `main`, publishes the latest chromium HTML report to GitHub Pages. Runs even when tests fail (a failing report is the most useful one).
 
 ### Live test report (GitHub Pages)
