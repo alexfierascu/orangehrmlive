@@ -107,7 +107,7 @@ sequenceDiagram
     Test->>Test: assert
 ```
 
-The login dance happens **once**. Every other test reuses the saved session and starts straight at the page it actually wants to test — that's why 21 tests run in ~2 minutes instead of ~5.
+The login dance happens **once**. Every other test reuses the saved session and starts straight at the page it actually wants to test — that's why the full suite (20 module tests + 1 setup test = 21 results in Playwright's output) runs in ~2 minutes instead of ~5.
 
 ## Prerequisites
 
@@ -216,7 +216,7 @@ The workflow reads `ADMIN_USER` and `ADMIN_PASSWORD` from repository secrets:
 2. Add `ADMIN_USER` (e.g. `Admin`) and `ADMIN_PASSWORD`.
 3. The workflow injects them into the Playwright run via the job's `env:` block — they appear as `***` in workflow logs and never end up in the repo.
 
-## What's covered (21 tests)
+## What's covered (20 module tests + 1 setup test)
 
 **Authentication** (3 tests, `tests/auth/login.spec.ts`)
 
@@ -236,7 +236,12 @@ The workflow reads `ADMIN_USER` and `ADMIN_PASSWORD` from repository secrets:
 - _Add Candidate_ — creates a candidate with required fields and lands on the candidate profile (post-save URL match); required-field validation for empty first/last name + email.
 - _Candidates List_ — loads with the seeded demo candidates rendered.
 
-> **Heads-up on intermittent CI failures.** One test — `PIM — Add Employee › creates an employee with first + last name and lands on Personal Details` — can fail intermittently on the public demo because of a real defect in OrangeHRM's auto-generated Employee Id (race condition under concurrent writes). The test is **deliberately not patched** to mask this. See [Findings during automation](#findings-during-automation) for the full bug report.
+> **Heads-up on intermittent CI failures.** Two tests can fail intermittently against the public demo because of real defects in OrangeHRM, not the framework:
+>
+> - `PIM — Add Employee › creates an employee with first + last name and lands on Personal Details` — auto-generated Employee Id race condition.
+> - `Authentication — Login › shows an error for invalid credentials` — `/auth/validate` POST hangs under repeated failed-login attempts (soft rate-limiting).
+>
+> Both tests are **deliberately not patched** to mask the bugs. See [Findings during automation](#findings-during-automation) for full reports.
 
 ## Notable design choices
 
